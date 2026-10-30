@@ -1,0 +1,15 @@
+# Виртуальное окружение Python
+.venv/
+
+# Кэш и скомпилированные файлы Python
+__pycache__/
+*.py[cod]
+
+# Кэш Jupyter-блокнотов
+.ipynb_checkpoints/
+
+# Служебные файлы редактора и системы
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
