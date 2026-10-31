@@ -173,6 +173,30 @@ def distances_to_nearest(reverse_graph, target, nodes):
     return result, gpd.GeoSeries(points, crs=target.crs)
 
 
+def is_closed_for_walkers(edge):
+    """Проверяет по тегам access и foot, что пешеходу здесь проходить нельзя."""
+    foot = edge.get("foot")
+    if foot in config.FOOT_FORBIDDEN:
+        return True
+    return edge.get("access") in config.ACCESS_CLOSED and foot not in config.FOOT_ALLOWED
+
+
+def drop_closed_edges(graph):
+    """Убирает закрытые для пешехода рёбра и оставляет самую большую связную часть графа."""
+    closed = [(u, v, key) for u, v, key, edge in graph.edges(keys=True, data=True) if is_closed_for_walkers(edge)]
+    closed_km = sum(graph.edges[edge]["length"] for edge in closed) / 1000
+
+    open_graph = graph.copy()
+    open_graph.remove_edges_from(closed)
+    # Участок, отрезанный запретами, нельзя оставлять: дом мог бы привязаться к нему и не найти пути
+    largest = max(nx.weakly_connected_components(open_graph), key=len)
+    print(
+        f"Закрытые для пешехода рёбра: убрано {len(closed)} из {graph.number_of_edges()} ({closed_km:.1f} км), "
+        f"отрезанных узлов {open_graph.number_of_nodes() - len(largest)}"
+    )
+    return open_graph.subgraph(largest).copy()
+
+
 def build_reverse_graph(graph):
     """Переводит граф в простой: между парой узлов оставляет кратчайшее ребро и разворачивает его."""
     reverse_graph = nx.DiGraph()
@@ -195,7 +219,7 @@ def add_walk_times(homes, targets, graph, nodes):
     for name, target in targets.items():
         to_target, target_points = distances_to_nearest(reverse_graph, target, nodes)
         meters = home_legs + np.array([to_target[node] for node in home_nodes])
-        homes[f"t_{name}"] = meters / meters_per_minute
+        homes[f"t_{name}"] = (meters / meters_per_minute).round(config.TIME_DECIMALS)
 
         # Путь не может быть короче прямой до ближайшего объекта. Запас 1 % нужен потому,
         # что длины рёбер считаны по сфере, а прямая в проекции UTM
@@ -286,7 +310,7 @@ def save_homes(homes, names):
         "geometry": "geometry",
     }
     result = homes[list(columns)].rename(columns=columns)
-    result = result.round({"access_leg_m": 1, **{f"t_{name}": 1 for name in names}})
+    result = result.round({"access_leg_m": 1})
     save_geojson(result, ACCESS_FILE)
 
 
@@ -351,7 +375,7 @@ def main():
 
     print("Читаем данные...")
     buildings = read_layer("buildings", crs)
-    graph = ox.load_graphml(DATA_DIR / "walk_graph.graphml")
+    graph = drop_closed_edges(ox.load_graphml(DATA_DIR / "walk_graph.graphml"))
     nodes = ox.graph_to_gdfs(graph, edges=False).to_crs(crs)[["geometry"]]
 
     targets = load_targets(buildings, crs)

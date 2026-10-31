@@ -60,6 +60,11 @@ def setup_osmnx():
     ox.settings.overpass_url = config.OVERPASS_URL
     ox.settings.requests_timeout = config.REQUEST_TIMEOUT_S
 
+    # Сохраняем тег foot. Встроенный фильтр access отключаем: он убрал бы и дорожки
+    # с access=private и foot=yes. Что закрыто для пешехода, решает 03_access.py
+    ox.settings.useful_tags_way = [*ox.settings.useful_tags_way, *config.GRAPH_EXTRA_TAGS]
+    ox.settings.default_access = ""
+
     # Журнал osmnx нужен нам только в программе: наш обработчик занимает место
     # обработчика по умолчанию, поэтому отдельный файл журнала не создаётся
     watcher = OsmnxLogWatcher()
@@ -191,13 +196,14 @@ def download_graph(search_area, watcher):
     try:
         graph = with_retries(
             "Пешеходный граф",
-            lambda: ox.graph_from_polygon(search_area, network_type=config.NETWORK_TYPE),
+            lambda: ox.graph_from_polygon(search_area, network_type=config.NETWORK_TYPE, simplify=False),
             watcher,
         )
     except DownloadFailedError:
         print("Пешеходный граф: не удалось скачать")
         return False
 
+    graph = ox.simplify_graph(graph, edge_attrs_differ=config.GRAPH_KEEP_SEPARATE_TAGS)
     save_safely(GRAPH_FILE, lambda temp_path: ox.save_graphml(graph, temp_path))
     return True
 

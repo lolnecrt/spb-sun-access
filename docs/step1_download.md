@@ -21,7 +21,7 @@
 | `clinics.geojson` | клиники (`amenity=clinic` или `healthcare=clinic`) | 99 | 30 |
 | `parks.geojson` | парки (`leisure=park`) | 337 | 127 |
 | `playgrounds.geojson` | детские площадки (`leisure=playground`) | 673 | 274 |
-| `walk_graph.graphml` | пешеходный граф osmnx (`network_type="walk"`): 37 938 узлов и 97 896 рёбер, с запасом | — | — |
+| `walk_graph.graphml` | пешеходный граф osmnx (`network_type="walk"`, перекачан на шаге 2 с тегами `access` и `foot`): 41 979 узлов и 108 936 рёбер, с запасом | — | — |
 
 Общие поля слоёв: `osm_type` и `osm_id` (ссылка на объект OSM), `in_district` (объект пересекает границу района). В слоях школ, садов, клиник и площадок запись может быть точкой или контуром.
 
