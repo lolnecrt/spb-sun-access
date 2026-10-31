@@ -12,7 +12,7 @@ import networkx as nx
 import numpy as np
 import osmnx as ox
 import pandas as pd
-from shapely.geometry import Polygon
+from shapely.geometry import Point, Polygon
 
 import config
 
@@ -230,24 +230,31 @@ def add_walk_times(homes, targets, graph, nodes):
 
 
 def build_hexagons(homes):
-    """Строит сетку гексагонов на территории домов и возвращает только занятые ячейки."""
+    """Строит сетку гексагонов вокруг домов. Положение и номер ячейки зависят только от точки в config.py."""
     side = config.HEX_SIDE_M
     step_x = math.sqrt(3) * side
     step_y = 1.5 * side
+    origin = gpd.GeoSeries([Point(config.HEX_ORIGIN_LON, config.HEX_ORIGIN_LAT)], crs=4326).to_crs(homes.crs).iloc[0]
     min_x, min_y, max_x, max_y = homes.total_bounds
 
+    # Дома могут стоять левее и ниже точки отсчёта, тогда номер ряда или столбца отрицательный
+    rows = range(math.floor((min_y - origin.y) / step_y) - 1, math.ceil((max_y - origin.y) / step_y) + 2)
+    columns = range(math.floor((min_x - origin.x) / step_x) - 1, math.ceil((max_x - origin.x) / step_x) + 2)
+
+    hex_ids = []
     cells = []
-    for row in range(int((max_y - min_y) / step_y) + 3):
-        y = min_y - step_y + row * step_y
+    for row in rows:
+        y = origin.y + row * step_y
         shift = step_x / 2 if row % 2 else 0
-        for column in range(int((max_x - min_x) / step_x) + 3):
-            x = min_x - step_x + column * step_x + shift
+        for column in columns:
+            x = origin.x + column * step_x + shift
             corners = [
                 (x + side * math.sin(math.radians(a)), y + side * math.cos(math.radians(a)))
                 for a in range(0, 360, 60)
             ]
+            hex_ids.append(f"{row}_{column}")
             cells.append(Polygon(corners))
-    return gpd.GeoDataFrame({"hex_id": range(len(cells))}, geometry=cells, crs=homes.crs)
+    return gpd.GeoDataFrame({"hex_id": hex_ids}, geometry=cells, crs=homes.crs)
 
 
 def summarize(group, names, suffix=""):
@@ -275,7 +282,7 @@ def make_hex_summary(homes, names):
         tag_group = group[group["residential_source"] == "tag"]
         rows.append(
             {
-                "hex_id": int(hex_id),
+                "hex_id": hex_id,
                 "n_homes": len(group),
                 "n_homes_tag": len(tag_group),
                 "low_sample": len(group) < config.HEX_MIN_HOMES,
