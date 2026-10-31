@@ -5,6 +5,9 @@
 __pycache__/
 *.py[cod]
 
+# Кэш ответов osmnx
+data/cache/
+
 # Кэш Jupyter-блокнотов
 .ipynb_checkpoints/
 
