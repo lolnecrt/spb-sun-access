@@ -1,0 +1,21 @@
+{
+  "walk_speed_kmh": 5,
+  "long_walk_min": 15,
+  "reliable_limit_min": 18,
+  "park_min_area_m2": 1000,
+  "time_breaks_min": [
+    5,
+    10,
+    15,
+    20,
+    30
+  ],
+  "time_colors": [
+    "#184f95",
+    "#2c7bd9",
+    "#74acee",
+    "#f28b82",
+    "#de4141",
+    "#9c1f1f"
+  ]
+}
