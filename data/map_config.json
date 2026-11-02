@@ -11,11 +11,14 @@
     30
   ],
   "time_colors": [
-    "#184f95",
-    "#2c7bd9",
-    "#74acee",
+    "#0d366b",
+    "#1f6fd0",
+    "#7ab0ef",
     "#f28b82",
     "#de4141",
     "#9c1f1f"
-  ]
+  ],
+  "hex_max_zoom": 14.5,
+  "hex_min_homes": 5,
+  "hex_side_m": 200
 }

@@ -38,9 +38,18 @@
 
     #scale { margin: 0; padding: 0; list-style: none; }
     #scale li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+    #scale li[hidden] { display: none; }
     #scale .threshold { display: block; margin: 3px 0; padding: 2px 0 0; border-top: 2px solid #222; font-size: 12px; color: #5f5f5f; }
     .swatch { display: inline-block; flex: none; width: 18px; height: 14px; border: 1px solid rgba(0, 0, 0, .35); border-radius: 2px; }
 
+    .swatch-hatch { background: repeating-linear-gradient(135deg, #8a8a8a 0 3px, #fff 3px 5px); }
+
+    #summary { margin-top: 14px; padding: 8px 10px; background: #f2f3f0; border-radius: 4px; }
+    #summary h2 { margin: 0 0 4px; }
+    #summary-share { font-weight: 700; }
+    #summary-median { margin-top: 2px; }
+
+    #view-note { margin-top: 10px; }
     #note { margin-top: 10px; }
     #about { margin-top: 12px; }
 
@@ -90,9 +99,16 @@
       <div id="types"></div>
     </fieldset>
 
-    <h2>Время до ближайшего объекта</h2>
+    <section id="summary" aria-live="polite">
+      <h2>Главное</h2>
+      <p id="summary-share"></p>
+      <p id="summary-median"></p>
+    </section>
+
+    <h2 id="scale-title"></h2>
     <ul id="scale"></ul>
 
+    <p id="view-note" class="muted"></p>
     <p id="note" class="muted"></p>
     <p id="about" class="muted"></p>
   </aside>
@@ -110,26 +126,31 @@
       {
         key: "school",
         label: "Школа",
+        from: "от школы",
         note: () => "Только общеобразовательные школы, в том числе за границей района.",
       },
       {
         key: "kindergarten",
         label: "Детский сад",
+        from: "от детского сада",
         note: () => "Все детские сады из OpenStreetMap, в том числе за границей района.",
       },
       {
         key: "clinic_adult",
         label: "Поликлиника",
+        from: "от взрослой поликлиники",
         note: (settings) => `Только городские взрослые поликлиники, список отобран вручную. Полнота зависит от OpenStreetMap. Время больше ${settings.reliable_limit_min} минут может быть завышено: ближайшая поликлиника может лежать за краем данных.`,
       },
       {
         key: "park",
         label: "Парк",
+        from: "от парка",
         note: (settings) => `Парки от ${settings.park_min_area_m2} м², кроме закрытых. Время считается до края парка, а значок стоит внутри него.`,
       },
       {
         key: "playground",
         label: "Детская площадка",
+        from: "от детской площадки",
         note: () => "Площадки, кроме закрытых. Самый оптимистичный показатель: многие закрытые дворы в OpenStreetMap не отмечены.",
       },
     ];
@@ -143,7 +164,9 @@
 
     let map;
     let settings;
-    let selectedType = TYPES[0].key;
+    // Сразу открываем поликлиники: здесь главный вывод проекта
+    let selectedType = "clinic_adult";
+    let homeProperties = [];
     let popup = null;
     let popupProperties = null;
 
@@ -176,15 +199,26 @@
       return `${number} мин`;
     }
 
+    function formatPercent(share) {
+      const number = (share * 100).toLocaleString("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      return `${number} %`;
+    }
+
+    function median(values) {
+      const sorted = [...values].sort((a, b) => a - b);
+      const middle = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+
     function colorFor(minutes) {
       const index = settings.time_breaks_min.findIndex((limit) => minutes <= limit);
       return settings.time_colors[index === -1 ? settings.time_colors.length - 1 : index];
     }
 
-    // Выражение MapLibre для цвета дома. Граница входит в нижний класс, поэтому нужен <=:
+    // Выражение MapLibre для цвета дома или гексагона. Граница входит в нижний класс, поэтому нужен <=:
     // выражение step отнесло бы дом с временем ровно 15,0 к классу «дольше 15 минут»
-    function colorExpression(typeKey) {
-      const time = ["get", `t_${typeKey}`];
+    function colorExpression(field) {
+      const time = ["get", field];
       const expression = ["case"];
       settings.time_breaks_min.forEach((limit, index) => {
         expression.push(["<=", time, limit], settings.time_colors[index]);
@@ -238,6 +272,39 @@
           scale.append(threshold);
         }
       });
+
+      // Строка про штриховку нужна, только пока на карте гексагоны
+      const hatched = document.createElement("li");
+      hatched.id = "scale-hatched";
+      const swatch = document.createElement("span");
+      swatch.className = "swatch swatch-hatch";
+      hatched.append(swatch, `меньше ${settings.hex_min_homes} домов: оценка ненадёжна`);
+      scale.append(hatched);
+    }
+
+    function isHexView() {
+      return map.getZoom() < settings.hex_max_zoom;
+    }
+
+    // Подписи зависят от того, что сейчас на карте: гексагоны или дома
+    function updateViewNotes() {
+      const hexView = isHexView();
+      document.getElementById("scale-title").textContent = hexView ? "Медиана по гексагону" : "Время от дома до ближайшего объекта";
+      document.getElementById("scale-hatched").hidden = !hexView;
+      document.getElementById("view-note").textContent = hexView
+        ? `Гексагон со стороной ${settings.hex_side_m} м. Цвет показывает середину ряда: даже в синем гексагоне часть домов может быть дальше порога. Приблизьте карту и щёлкните по дому, чтобы увидеть все времена.`
+        : "Щёлкните по дому, чтобы увидеть все времена.";
+    }
+
+    // Цифры считаем из тех же домов, что на карте, поэтому они не разойдутся с данными
+    function updateSummary() {
+      const type = TYPES.find((item) => item.key === selectedType);
+      const times = homeProperties.map((home) => home[`t_${selectedType}`]);
+      const farCount = times.filter((minutes) => minutes > settings.long_walk_min).length;
+      const share = farCount === 0 ? "0 %" : formatPercent(farCount / times.length);
+      document.getElementById("summary-share").textContent =
+        `${share} домов — дальше ${settings.long_walk_min} минут ${type.from}`;
+      document.getElementById("summary-median").textContent = `Медиана — ${formatMinutes(median(times))}`;
     }
 
     function updateNote() {
@@ -301,9 +368,14 @@
 
     function selectType(typeKey) {
       selectedType = typeKey;
-      map.setPaintProperty("homes-fill", "fill-color", colorExpression(typeKey));
-      map.setFilter("objects", ["==", ["get", "type"], typeKey]);
+      // Если слои ещё загружаются, они сами возьмут выбранный тип
+      if (map.getLayer("objects")) {
+        map.setPaintProperty("homes-fill", "fill-color", colorExpression(`t_${typeKey}`));
+        map.setPaintProperty("hex-fill", "fill-color", colorExpression(`median_${typeKey}`));
+        map.setFilter("objects", ["==", ["get", "type"], typeKey]);
+      }
       updateNote();
+      updateSummary();
       // Открытое окно обновляем, чтобы в нём выделился новый тип
       if (popup && popup.isOpen()) {
         popup.setDOMContent(buildPopupContent(popupProperties));
@@ -329,6 +401,26 @@
       map.addImage(`icon-${typeKey}`, image, { pixelRatio: 2 });
     }
 
+    // Штриховка для гексагонов с малой выборкой: белые полосы поверх цвета. Бледность здесь не подходит,
+    // потому что бледный тёмно-синий выглядел бы как другой класс времени
+    function addHatchPattern() {
+      const size = 16;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d");
+      context.strokeStyle = "#fff";
+      context.lineWidth = 3;
+      // Три линии нужны, чтобы полосы стыковались, когда плитка повторяется
+      for (const shift of [-size, 0, size]) {
+        context.beginPath();
+        context.moveTo(shift, size);
+        context.lineTo(shift + size, 0);
+        context.stroke();
+      }
+      map.addImage("hatch", context.getImageData(0, 0, size, size), { pixelRatio: 2 });
+    }
+
     // В стиле подложки подписи на двух языках. Оставляем русское название, а если его нет, то местное
     function useRussianLabels() {
       for (const layer of map.getStyle().layers) {
@@ -339,36 +431,70 @@
       }
     }
 
-    async function addDataLayers(homes, objects, boundary) {
+    async function addDataLayers(homes, objects, boundary, hexagons) {
       useRussianLabels();
+      addHatchPattern();
       await Promise.all(TYPES.map((type) => loadIcon(type.key)));
 
       map.addSource("homes", { type: "geojson", data: homes });
       map.addSource("objects", { type: "geojson", data: objects });
       map.addSource("boundary", { type: "geojson", data: boundary });
+      map.addSource("hexagons", { type: "geojson", data: hexagons });
 
-      // Дома кладём под подписи подложки, чтобы названия улиц оставались читаемыми
+      // Дома и гексагоны кладём под подписи подложки, чтобы названия улиц оставались читаемыми
       const firstLabel = map.getStyle().layers.find((layer) => layer.type === "symbol");
       const beforeLabels = firstLabel ? firstLabel.id : undefined;
 
+      // На мелком масштабе видны гексагоны, с масштаба hex_max_zoom — дома. В один момент виден только один вид
+      map.addLayer({
+        id: "hex-fill",
+        type: "fill",
+        source: "hexagons",
+        maxzoom: settings.hex_max_zoom,
+        paint: { "fill-color": colorExpression(`median_${selectedType}`), "fill-opacity": 0.85 },
+      }, beforeLabels);
+      map.addLayer({
+        id: "hex-hatch",
+        type: "fill",
+        source: "hexagons",
+        maxzoom: settings.hex_max_zoom,
+        filter: ["==", ["get", "low_sample"], true],
+        paint: { "fill-pattern": "hatch" },
+      }, beforeLabels);
+      map.addLayer({
+        id: "hex-line",
+        type: "line",
+        source: "hexagons",
+        maxzoom: settings.hex_max_zoom,
+        paint: { "line-color": "#fff", "line-width": 1 },
+      }, beforeLabels);
       map.addLayer({
         id: "homes-fill",
         type: "fill",
         source: "homes",
-        paint: { "fill-color": colorExpression(selectedType), "fill-opacity": 0.9 },
+        minzoom: settings.hex_max_zoom,
+        paint: { "fill-color": colorExpression(`t_${selectedType}`), "fill-opacity": 0.9 },
       }, beforeLabels);
       // Тонкий контур отделяет соседние дома и помогает светлым классам не теряться на фоне
       map.addLayer({
         id: "homes-line",
         type: "line",
         source: "homes",
+        minzoom: settings.hex_max_zoom,
         paint: { "line-color": "#222", "line-opacity": 0.4, "line-width": 0.5 },
+      }, beforeLabels);
+      // Граница района: тёмная линия с белой окантовкой видна и на подложке, и поверх цветных гексагонов
+      map.addLayer({
+        id: "boundary-halo",
+        type: "line",
+        source: "boundary",
+        paint: { "line-color": "#fff", "line-width": 5, "line-opacity": 0.9 },
       }, beforeLabels);
       map.addLayer({
         id: "boundary-line",
         type: "line",
         source: "boundary",
-        paint: { "line-color": "#222", "line-width": 1.5, "line-dasharray": [3, 2] },
+        paint: { "line-color": "#111", "line-width": 2.25 },
       }, beforeLabels);
       map.addLayer({
         id: "objects",
@@ -422,26 +548,32 @@
         return;
       }
 
-      let homes, objects, boundary;
+      let homes, objects, boundary, hexagons;
       try {
-        [settings, homes, objects, boundary] = await Promise.all([
+        [settings, homes, objects, boundary, hexagons] = await Promise.all([
           fetchJson("data/map_config.json"),
           fetchJson("data/access.geojson"),
           fetchJson("data/map_objects.geojson"),
           fetchJson("data/boundary.geojson"),
+          fetchJson("data/access_hex.geojson"),
         ]);
       } catch (error) {
         showError("Не загрузились данные карты", error.message);
         return;
       }
 
+      homeProperties = homes.features.map((feature) => feature.properties);
+
       buildTypeSwitch();
       buildScale();
       updateNote();
+      updateSummary();
       document.getElementById("about").textContent =
-        `Скорость ${settings.walk_speed_kmh} км/ч. Входы в дома неизвестны, поэтому время отдельного дома может отличаться на несколько минут. Щёлкните по дому, чтобы увидеть все времена.`;
+        `Скорость ${settings.walk_speed_kmh} км/ч. Входы в дома неизвестны, поэтому время отдельного дома может отличаться на несколько минут.`;
 
       createMap(boundary);
+      updateViewNotes();
+      map.on("zoom", updateViewNotes);
 
       // Ошибка до загрузки стиля значит, что недоступна подложка. Отдельный пропавший фрагмент карты не страшен
       let styleLoaded = false;
@@ -453,7 +585,7 @@
         }
       });
       map.on("load", () => {
-        addDataLayers(homes, objects, boundary).catch((error) => {
+        addDataLayers(homes, objects, boundary, hexagons).catch((error) => {
           console.error(error);
           showError("Не удалось показать данные на карте", error.message);
         });

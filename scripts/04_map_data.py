@@ -66,6 +66,9 @@ def save_map_config():
         "park_min_area_m2": config.PARK_MIN_AREA_M2,
         "time_breaks_min": config.MAP_TIME_BREAKS_MIN,
         "time_colors": config.MAP_TIME_COLORS,
+        "hex_max_zoom": config.MAP_HEX_MAX_ZOOM,
+        "hex_min_homes": config.HEX_MIN_HOMES,
+        "hex_side_m": config.HEX_SIDE_M,
     }
     CONFIG_FILE.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
