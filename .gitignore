@@ -16,3 +16,7 @@ data/cache/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Локальные служебные файлы
+CLAUDE.md
+.claude/
